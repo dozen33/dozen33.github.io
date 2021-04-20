@@ -1,14 +1,15 @@
 # Site
-title:              Moon
-bio:                'Minimal, one column jekyll theme.'
-description:        "Moon is a minimal, one column jekyll theme for your blog."
+title:              dozen33
+bio:                'For me'
+description:        "All posting for my study"
 reading_time:       true
 words_per_minute:   200
 logo:               'assets/img/logo.png'
 background:         'assets/img/placeholder-big.jpg'
 tiled_bg:           false   # Set this true if you want to tile your background image, otherwise it will be covered
 locale:             en_US
-url:                https://taylantatli.github.io/Moon
+#url:                https://taylantatli.github.io/Moon
+url :               https://dozen33.github.io/
 
 # Jekyll
 permalink:          /:title/
