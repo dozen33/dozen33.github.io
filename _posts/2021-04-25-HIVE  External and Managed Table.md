@@ -83,7 +83,7 @@ CREATE EXTERNAL TABLE IF NOT EXISTS db_name.table_name        --테이블 명
 * IMPALA와 HIVE는 HIVE METADATA 공유
 * HIVE 메타데이터 변경시 IMPALA에 적용 필요
 * 하기 코드 입력 혹은 HUE에서는 캐시 증분 버튼 존재
-``` SQL
+``` sql
  INVALIDATE METADATA db_name.table_name;
  REFRESH db_name.table_name;     --COST가 더 적은 코드
  ```
