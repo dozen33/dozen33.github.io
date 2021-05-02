@@ -1,53 +1,50 @@
 ---
 layout: post
-title:  "HiveQL 최적화"
+title:  " optimizer join"
 date:   2021-05-02
-excerpt: "HiveQL 최적화"
+excerpt: " optimizer join"
 
 comments: false
 ---
-#  HiveQL 성능을 최적화를 위한 방법
-테이블 > 파티션 > 버킷
-점차 데이터를 세분화 하는 것
+# 옵티마이저(Optimizer)
+ SQL의 실행 계획을 수립하고 SQL을 실행하는 데이터베이스 관리 시스템의 소프트웨어
 
-* partition : 열 또는 파티션 키를 기반으로 동일한 유형의 데이터를 함께 그룹화하기 위해 테이블을 파티션으로 구성
-* buket : 파티션 혹은 테이블에 열의 해시 함수를 기반으로 추가적인 구조를 제공하여 데이터를 세분화하는 것
+* 개발자가 SQL을 실행하면 파싱(Parsing)을 실행해서 SQL의 문법 검사 및 구문 분석을 수행
+* 구문 분석이 완료되면, 옵티마이저가 규칙 기반 혹은 비용 기반으로 실행 계획을 수립
+* 실행 수립이 완료되면, 최종적으로 SQL을 실행하고, 실행이 완료되면 데이터를 인출(Fetch)
 
-## 1. Partition
-* HDFS 테이블 디렉토리의 하위 디렉토리에 데이터를 저장
-* 구분
-|Static (정적) | Dynamic (동적)
-   |:--------:|:--------:|
-|insert문에 고정값을 전달 | insert문에 조회하는 컬럼 전달
-|테이블의 큰 파일 로드시 적절| 대용량 데이터가 저장된 경우 적절
-|파티션 변경 가능 | 파티션 변경 불가
-||파티셔닝 되지 않는 테이블을 로드하는 것
+#  optimizer join
+### 1. Nested Loop Join
+* 하나의 테이블에서 데이터를 먼저 찾고, 그 다음 테이블을 조인하는 형식으로 실행
+* 먼저 조회되는 테이블을 선행/외부/Outer Table, 그 다음에 조회되는 테이블을 Inner Table
+* 크기가 작은 선행 테이블로 실행해야 데이터 스캔의 범위를 줄일 수 있음
+* RANDOM ACCESS량 줄여서 성능 향상시켜야 함
+* 조인 컬럼의 인덱스 필요
+* SELECT 뒤에 /*+ ordered use_nl(TABLE NAME) */ *의 힌트를 주어 사용
+- ordered 힌트는 FROM 절에 나오는 테이블 순서대로 조인을 하게 하는 것
+- ordered는 혼자 사용되지 않고, use_nl, use_merge, use_hash 힌트와 함께 사용
 
-```sql
---정적
-INSERT INTO TABLE db_name.table_name(yyyymmdd='20210503')
-             SELECT col1 FROM db_name.table_tmp;        
---동적
-INSERT INTO TABLE db_name.table_name(yyyymmdd)
-             SELECT col1 FROM db_name.table_tmp;                   
-```
+### 2. Sort Merge Join
+* 두 개의 테이블을 SORT_AREA라는 메모리 공간에 모두 로딩(Loading)하고 정렬(Sort)을 수행
+* 두 개의 테이블에서 Sort가 완료되면, 두 개의 테이블을 Merge
+* Sort 수행 때문에 데이터 양이 많아지면 성능이 저하
+* 정렬 데이터양이 너무 많으면, 정렬은 디스크 영역에서 수행되어 성능이 급격히 떨어짐
+* SELECT 뒤에 /*+ ordered use_merge(TABLE NAME) */ * 힌트를 주어 사용
 
-## 2. Bucket 버켓
-* HDFS에서 분리된 파일로 데이터를 저장
-* 특정 컬럼을 버켓컬럼 으로 사용하며, 해당 컬럼의 값은 사용자 정의 숫자로 컬럼에 해쉬처리 <br>
-동일한 ID를 가진 레코드는 항상 동일한 버킷에 저장
-* 버켓의 갯수 : 2의 N제곱 개 (추천)<br>
-블록 크기가 256MB이면 각 버킷에 512MB 데이터 할당 가능
+### 3. Hash Join
+두 개의 테이블에서 작은 테이블을 Hash 메모리에 로딩(Loading)하고 두 개의 테이블의 조인 키를 사용해서 테이블을 생성
+* Hash 함수를 사용해서 주소를 계산하고, 해당 주소를 사용해서 테이블을 조인하기 때문에, CPU 연산을 많이 함
+* Hash Join 시에는 선행 테이블이 충분히 메모리에 로딩되는 크기여야만 함.
 
-```sql
---버킷 생성
-CREATE TABLE db_name.table_name
-PARTITIONED BY (col1 string,
-                col2 int,
-                ...,
-                col4 string)
-CLUSTERED BY (col4, col5, …)        -- bucketing 하려는 컬럼
-SORTED BY (col1 [ASC|DESC], …)]
-INTO 4 BUCKETS;                     -- 버켓의 개수
-```
+# 조인효율 향상의 원리
+### 1. 조인 순서
+* 처리범위가 가장 좁은 범위를 먼저 처리할 수록 조인의 효율은 증가
 
+### 2. 조인 성공률
+* 조인 작업이 수행된 후 조건을 만족하는 총  row 수(성공된 row수)
+* 세 개 이상의 집합에 대한 조인 효율은 조인 성공률이 낮은 집합의 조인이 먼저 일어나는 것이 유리
+
+### 3. 연결고리 상태
+* 연결고리 정상 : 조건절에 기술되는 조인의 연결 컬럼에 인덱스가 모두 존재하는 상태
+* 연결고리가 정상인 상태에서는 어느 방향으로 연결작업이 수행되든 간에 발생되는 연결작업은 동일
+* 처리범위를 줄여주는 테이블이 먼저 처리되면 수행속도가 향상
